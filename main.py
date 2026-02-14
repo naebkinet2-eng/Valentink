@@ -172,7 +172,7 @@ def getMessage():
 @server.route("/")
 def webhook():
     bot.remove_webhook()
-    bot.set_webhook(url='https://dashboard.render.com/web/srv-d683iajh46gs73f6hl6g/deploys/dep-d683ib3h46gs73f6hlng/' + TOKEN)
+    bot.set_webhook(url='https://valentink.onrender.com/' + TOKEN)
     return "Bot Online", 200
 
 if __name__ == "__main__":
