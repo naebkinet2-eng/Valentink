@@ -9,8 +9,8 @@ from io import BytesIO
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("TOKEN")
-CHANNEL_URL = "https://t.me/твой_канал"
-CHANNEL_ID = "@твой_канал"  # Обязательно добавь бота в админы канала!
+CHANNEL_URL = "https://t.me/testchannel1234524234"
+CHANNEL_ID = "8125791280"  # Обязательно добавь бота в админы канала!
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 server = Flask(__name__)
@@ -172,7 +172,7 @@ def getMessage():
 @server.route("/")
 def webhook():
     bot.remove_webhook()
-    bot.set_webhook(url='https://твой-сервис.onrender.com/' + TOKEN)
+    bot.set_webhook(url='https://dashboard.render.com/web/srv-d683iajh46gs73f6hl6g/deploys/dep-d683ib3h46gs73f6hlng/' + TOKEN)
     return "Bot Online", 200
 
 if __name__ == "__main__":
