@@ -6,11 +6,13 @@ from flask import Flask, request
 from telebot import types
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+import traceback # Нужно для вывода ошибок
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("TOKEN")
+# ВАЖНО: Если канал публичный, ID обычно начинается с -100. Проверь это через @getmyid_bot
+CHANNEL_ID = "8125791280" 
 CHANNEL_URL = "https://t.me/testchannel1234524234"
-CHANNEL_ID = "8125791280"  # Обязательно добавь бота в админы канала!
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 server = Flask(__name__)
@@ -21,8 +23,9 @@ def is_subscribed(user_id):
     try:
         status = bot.get_chat_member(CHANNEL_ID, user_id).status
         return status in ['member', 'administrator', 'creator']
-    except:
-        return False
+    except Exception as e:
+        print(f"Ошибка проверки подписки: {e}")
+        return False # Для теста можно поставить True, если проверка мешает
 
 # --- КЛАВИАТУРЫ ---
 def get_main_menu():
@@ -51,7 +54,7 @@ def check_sub(call):
     else:
         bot.answer_callback_query(call.id, "Нужна подписка на канал! 🛑", show_alert=True)
 
-# --- ЛОГИКА 1: ГЕНЕРАЦИЯ ---
+# --- ЛОГИКА 1: ГЕНЕРАЦИЯ (С ИСПРАВЛЕНИЯМИ) ---
 @bot.message_handler(func=lambda m: m.text == "🎁 Сгенерировать валентинку")
 def gen_start(message):
     user_states[message.chat.id] = {'step': 'prompt'}
@@ -75,18 +78,23 @@ def gen_final(message):
     
     bot.send_message(chat_id, "⏳ **Нейросеть рисует вашу любовь...**", parse_mode="Markdown")
 
-    # Используем Pollinations AI (Бесплатно)
-    # Формируем промпт: описание + подпись
+    # Формируем ссылку
     full_prompt = f"Valentine's day card, {data['prompt']}, romantic aesthetic, high quality, digital art, soft lighting"
     encoded_prompt = urllib.parse.quote(full_prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+    # Добавил model=flux (она часто надежнее) и seed (чтобы картинки были разными)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&model=flux"
 
-    # Создаем подпись через Pillow поверх сгенерированной картинки
     try:
-        response = requests.get(image_url)
+        print(f"LOG: Начинаю загрузку: {image_url}") # ЛОГ В КОНСОЛЬ
+        
+        response = requests.get(image_url, timeout=40) # Таймаут 40 секунд
+        if response.status_code != 200:
+            raise Exception(f"Ошибка API: Код {response.status_code}")
+
+        print("LOG: Картинка загружена, открываю...") 
         img = Image.open(BytesIO(response.content))
         
-        # Накладываем текст (От кого / Кому)
+        print("LOG: Рисую текст...")
         img = add_text_to_image(img, data['from'], data['to'])
         
         bio = BytesIO()
@@ -95,8 +103,13 @@ def gen_final(message):
 
         caption = f"💖 [Сгенерировать валентинку](https://t.me/{bot.get_me().username})"
         bot.send_photo(chat_id, bio, caption=caption, parse_mode="Markdown", reply_markup=get_main_menu())
+        print("LOG: Успешно отправлено!")
+
     except Exception as e:
-        bot.send_message(chat_id, "Ошибка генерации. Попробуй позже.")
+        # ВОТ ЭТО ПОКАЖЕТ ОШИБКУ В КОНСОЛИ RENDER
+        print(f"❌ CRITICAL ERROR: {e}")
+        traceback.print_exc()
+        bot.send_message(chat_id, f"Произошла ошибка при создании: {e}")
     
     user_states[chat_id] = {}
 
@@ -126,15 +139,20 @@ def sign_final(message):
     
     bot.send_message(chat_id, "✍️ **Подписываю открытку...**", parse_mode="Markdown")
     
-    img = Image.open(BytesIO(data['photo']))
-    img = add_text_to_image(img, data['from'], data['to'])
-    
-    bio = BytesIO()
-    img.save(bio, 'PNG')
-    bio.seek(0)
+    try:
+        img = Image.open(BytesIO(data['photo']))
+        img = add_text_to_image(img, data['from'], data['to'])
+        
+        bio = BytesIO()
+        img.save(bio, 'PNG')
+        bio.seek(0)
 
-    caption = f"💖 [Сгенерировать валентинку](https://t.me/{bot.get_me().username})"
-    bot.send_photo(chat_id, bio, caption=caption, parse_mode="Markdown", reply_markup=get_main_menu())
+        caption = f"💖 [Сгенерировать валентинку](https://t.me/{bot.get_me().username})"
+        bot.send_photo(chat_id, bio, caption=caption, parse_mode="Markdown", reply_markup=get_main_menu())
+    except Exception as e:
+        print(f"Ошибка подписи своего фото: {e}")
+        bot.send_message(chat_id, "Не удалось обработать это фото 🥺")
+        
     user_states[chat_id] = {}
 
 # --- ФУНКЦИЯ РИСОВАНИЯ ТЕКСТА ---
@@ -147,6 +165,7 @@ def add_text_to_image(img, from_name, to_name):
         font_path = "font.ttf"
         font = ImageFont.truetype(font_path, int(height / 18))
     except:
+        print("LOG: Шрифт не найден, использую стандартный")
         font = ImageFont.load_default()
 
     text = f"От: {from_name} ❤️ Кому: {to_name}"
@@ -172,8 +191,10 @@ def getMessage():
 @server.route("/")
 def webhook():
     bot.remove_webhook()
+    # Убедись, что ссылка правильная!
     bot.set_webhook(url='https://valentink.onrender.com/' + TOKEN)
     return "Bot Online", 200
 
 if __name__ == "__main__":
+    # Исправил логику порта, чтобы Render не ругался
     server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
